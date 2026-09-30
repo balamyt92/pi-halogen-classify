@@ -1,0 +1,45 @@
+{
+  "name": "pi-halogen-classify",
+  "version": "1.0.0",
+  "description": "Модель-классификатор для Pi поверх halogen-flash-server: быстрый триаж, маршрутизация, bool/choice/score-вопросы к состоянию и чек-листы по документу через logprobs за один проход.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "classifier",
+    "halogen",
+    "logprobs",
+    "triage",
+    "routing"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "files": [
+    "index.ts",
+    "classify.ts",
+    "labels.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
