@@ -13,9 +13,9 @@ pi `llama-cpp-classify`, но поверх OpenAI-совместимого эн�
 Как и другие пакеты Pi — из git, npm или локального пути:
 
 ```bash
-pi install git:github.com/<you>/pi-halogen-classify
+pi install git:github.com/balamyt92/pi-halogen-classify
 # или для прогона без записи в settings:
-pi -e git:github.com/<you>/pi-halogen-classify
+pi -e git:github.com/balamyt92/pi-halogen-classify
 # или локально:
 pi install ~/work/extensions/pi-halogen-classify
 ```
@@ -154,8 +154,8 @@ const result = await ctx.modelRegistry.classify(model, { state, questions });
    `temperature:0`, `logprobs:true`, `top_logprobs:20`.
 5. `top_logprobs` → вероятности меток → ответ нужного типа.
 
-Метки: `choice` — буквы A/B/C…, `score` — цифры 0–9, `bool` — `A`/`No`. Все
-одно-токенные.
+Метки: `choice` — латиница A–Z, a–z, затем цифры 0–9 (до 62 опций), `score` —
+цифры 0–9, `bool` — `A`/`B` (`A` = да/true, `B` = нет/false). Все одно-токенные.
 
 ## Ограничения
 
