@@ -1,0 +1,14 @@
+{
+  "apiKey": "dummy",
+  "model": "halogen-qwen3.8-flash-next",
+  "cost": { "input": 0.2, "output": 1.2, "cacheRead": 0.02, "cacheWrite": 0.25 },
+  "nodes": [
+    { "id": "ms1", "baseUrl": "http://192.168.1.7:8080/v1", "contextWindow": 524288 },
+    { "id": "ms2", "baseUrl": "http://192.168.1.8:8080/v1", "contextWindow": 262144 }
+  ],
+  "guard": {
+    "enabled": false,
+    "node": "ms1",
+    "blockThreshold": 0.6
+  }
+}

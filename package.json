@@ -20,6 +20,9 @@
     "index.ts",
     "classify.ts",
     "labels.ts",
+    "config.ts",
+    "guard.ts",
+    "config.example.json",
     "LICENSE",
     "README.md"
   ],
