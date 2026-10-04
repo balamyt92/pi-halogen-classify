@@ -113,6 +113,8 @@ export function mergeGuard(value: unknown, defaults: GuardConfig): GuardConfig {
 	if (typeof value.blockThreshold === "number" && value.blockThreshold >= 0 && value.blockThreshold <= 1) {
 		out.blockThreshold = value.blockThreshold;
 	}
+	// Пустая строка — осознанный отказ от подсказки, поэтому проверяется тип, а не непустота.
+	if (typeof value.blockHint === "string") out.blockHint = value.blockHint;
 	return out;
 }
 
@@ -131,6 +133,8 @@ export function applyEnvOverrides(
 	if (env.HALOGEN_MODEL) out.model = env.HALOGEN_MODEL;
 	if (env.HALOGEN_GUARD === "1" || env.HALOGEN_GUARD === "true") out.guard.enabled = true;
 	if (env.HALOGEN_GUARD === "0" || env.HALOGEN_GUARD === "false") out.guard.enabled = false;
+	// Пустая строка в env отключает подсказку, поэтому сравнение с undefined.
+	if (env.HALOGEN_GUARD_HINT !== undefined) out.guard.blockHint = env.HALOGEN_GUARD_HINT;
 	// Переопределение базового URL узла по его id: HALOGEN_NODE_<ID>_BASE_URL.
 	for (const node of out.nodes) {
 		const key = `HALOGEN_NODE_${node.id.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_BASE_URL`;

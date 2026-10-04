@@ -5,7 +5,10 @@
  * Команды вне категории `safe` с достаточной уверенностью блокируются через
  * `tool_call`-хенддер pi (`{ block: true, reason }`).
  *
- * Чистые функции (buildGuardContext, decideGuard) тестируются офлайн.
+ * К причине блока прикладывается подсказка: не повторять команду, а сузить её или
+ * попросить пользователя исполнить команду самому (buildBlockReason, BLOCK_HINTS).
+ *
+ * Чистые функции (buildGuardContext, decideGuard, buildBlockReason) тестируются офлайн.
  * Хенддер подключается в index.ts, когда `guard.enabled === true`.
  */
 
@@ -18,6 +21,12 @@ export interface GuardConfig {
 	node: string;
 	/** Блокировать, если категория не `safe` и уверенность >= порога. */
 	blockThreshold: number;
+	/**
+	 * Подсказка агенту в причине блока. `undefined` — встроенный текст по категории
+	 * из `BLOCK_HINTS`. Пустая строка — подсказку не добавлять. `{category}` в тексте
+	 * заменяется на категорию решения.
+	 */
+	blockHint?: string;
 }
 
 export const DEFAULT_GUARD: GuardConfig = {
@@ -36,6 +45,41 @@ export const RISK_CRITERIA: Record<string, string> = {
 	privileged:
 		"Privilege escalation or system config change: 'sudo', writing to /etc, /usr, /bin, chmod -R on system dirs",
 };
+
+/**
+ * Подсказка агенту под запретом. Блок сам по себе агенту не полезен: он повторяет
+ * команду или ищет обход. Поэтому к причине прикладывается допустимый обход —
+ * сузить команду либо попросить пользователя исполнить её самому.
+ */
+export const BLOCK_HINTS: Record<string, string> = {
+	destructive:
+		"Do not retry this command and do not look for a way around the guard. First check for a narrower, non-forced alternative. If the deletion or overwrite is genuinely required, ask the user to run it themselves: say why it is needed, give the exact command, then wait until they confirm it is done.",
+	root_search:
+		"Do not retry this command. Restrict the search to the project directory or another specific path. If a system-wide search is genuinely required, ask the user to run it themselves and give the exact command.",
+	privileged:
+		"Do not retry this command. If this change genuinely needs elevated rights, ask the user to run it themselves: say why it is needed, give the exact command, then wait until they confirm it is done.",
+	unknown:
+		"Do not retry this command. If it is genuinely required, ask the user to run it themselves and give the exact command.",
+};
+
+/** Подстановка `{category}` в тексте подсказки. */
+export function fillHint(hint: string, category: string): string {
+	return hint.replace(/\{category\}/g, category);
+}
+
+/**
+ * Причина блока, которую видит модель: заголовок с категорией и уверенностью плюс
+ * подсказка. Команду не повторяем — она видна модели в её же вызове инструмента.
+ * `hint === undefined` — текст по категории, пустой `hint` — без подсказки.
+ */
+export function buildBlockReason(decision: GuardDecision, hint?: string): string {
+	const head =
+		`halogen guard: blocked (category: ${decision.category}, ` +
+		`confidence: ${decision.confidence.toFixed(2)})`;
+	const text = hint === undefined ? BLOCK_HINTS[decision.category] ?? BLOCK_HINTS.unknown : hint;
+	if (!text.trim()) return head;
+	return `${head}\n${fillHint(text, decision.category)}`;
+}
 
 /** ClassifierContext для проверки одной команды. */
 export function buildGuardContext(command: string): ClassifierContext {

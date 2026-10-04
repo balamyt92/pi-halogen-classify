@@ -1,6 +1,6 @@
 {
   "name": "pi-halogen-classify",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Модель-классификатор для Pi поверх halogen-flash-server: быстрый триаж, маршрутизация, bool/choice/score-вопросы к состоянию и чек-листы по документу через logprobs за один проход.",
   "keywords": [
     "pi-package",

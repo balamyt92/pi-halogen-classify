@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "./config.ts";
 import { CLASSIFIER_API, classify, setServerModel } from "./classify.ts";
-import { buildGuardContext, decideGuard } from "./guard.ts";
+import { buildBlockReason, buildGuardContext, decideGuard } from "./guard.ts";
 
 export default function (pi: ExtensionAPI): void {
 	const cfg = loadConfig();
@@ -60,7 +60,7 @@ export default function (pi: ExtensionAPI): void {
 			if (decision.block) {
 				return {
 					block: true,
-					reason: `halogen guard: ${decision.category} (conf ${decision.confidence.toFixed(2)}) — ${command}`,
+					reason: buildBlockReason(decision, cfg.guard.blockHint),
 				};
 			}
 			return undefined;
