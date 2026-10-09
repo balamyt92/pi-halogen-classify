@@ -8,8 +8,13 @@
  * К причине блока прикладывается подсказка: не повторять команду, а сузить её или
  * попросить пользователя исполнить команду самому (buildBlockReason, BLOCK_HINTS).
  *
- * Чистые функции (buildGuardContext, decideGuard, buildBlockReason) тестируются офлайн.
- * Хенддер подключается в index.ts, когда `guard.enabled === true`.
+ * Поведение fail-open: при недоступном классификаторе команда пропускается. Чтобы
+ * пропуск не был невидим, `describeGuardFailure` + `buildGuardUnavailableMessage`
+ * дают текст предупреждения в UI — на каждой пропущенной команде.
+ *
+ * Чистые функции (buildGuardContext, decideGuard, buildBlockReason,
+ * describeGuardFailure, buildGuardUnavailableMessage, guardFailureOf)
+ * тестируются офлайн. Хенддер подключается в index.ts, когда `guard.enabled === true`.
  */
 
 import type { ClassifierContext, ClassifierResult } from "@earendil-works/pi-ai";
@@ -100,6 +105,72 @@ export interface GuardDecision {
 	block: boolean;
 	category: string;
 	confidence: number;
+}
+
+/**
+ * Категория отказа предохранителя — в любой из них команду пропускают без проверки:
+ * - `no_model` — классификатор `guard.node` не зарегистрирован (id вне `nodes`);
+ * - `classify_error` — запрос к узлу не прошёл (сервер упал, таймаут, ошибка ответа);
+ * - `bad_answer` — узел ответил, но категории риска в ответе нет.
+ */
+export type GuardFailure = "no_model" | "classify_error" | "bad_answer";
+
+/** Максимальная длина текста причины отказа в сообщении. */
+const FAILURE_DETAIL_MAX_CHARS = 160;
+
+/** Текст ошибки в одну строку произвольной длины. */
+function errorText(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	return error === undefined || error === null ? "" : String(error);
+}
+
+/** Свёртка текста в одну строку длиной не больше `max`. */
+function collapse(text: string, max: number): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** Причина отказа: почему команду не проверили. */
+export function describeGuardFailure(failure: GuardFailure, node: string, error?: unknown): string {
+	if (failure === "no_model") {
+		return `классификатор ${node} не зарегистрирован`;
+	}
+	if (failure === "bad_answer") {
+		return `узел ${node} не вернул категорию риска`;
+	}
+	const detail = collapse(errorText(error) || "ошибка классификатора", FAILURE_DETAIL_MAX_CHARS);
+	return `узел ${node} недоступен: ${detail}`;
+}
+
+/**
+ * Отказ по результату классификации; `undefined` — ответ пригоден, проверять дальше.
+ *
+ * Классификаторы pi не бросают на ошибке провайдера, а возвращают `stopReason:
+ * "error"` с `errorMessage`, поэтому ловить отказ нужно здесь, а не в `catch`.
+ * Прерванный агентом запрос (`aborted`) отказом узла не считается.
+ */
+export function guardFailureOf(result: ClassifierResult): GuardFailure | undefined {
+	if (result.stopReason === "error") return "classify_error";
+	if (result.stopReason === "aborted") return undefined;
+	const answer = result.answers?.risk;
+	return answer && answer.type === "choice" ? undefined : "bad_answer";
+}
+
+/**
+ * Предупреждение пользователю о пропуске команды без проверки: что случилось и что
+ * делать. Текст человеческий, не для модели, поэтому на русском, как и README.
+ */
+export function buildGuardUnavailableMessage(
+	failure: GuardFailure,
+	node: string,
+	error?: unknown,
+): string {
+	return (
+		`halogen guard: проверка не выполнена (${describeGuardFailure(failure, node, error)}), ` +
+		`команда пропущена без проверки. ` +
+		`Проверьте guard.node и доступность сервера в halogen-classify.json, ` +
+		`либо отключите guard: HALOGEN_GUARD=0`
+	);
 }
 
 /** Решение по результату классификации: блокировать или пропустить. */

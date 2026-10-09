@@ -5,7 +5,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ClassifierResult } from "@earendil-works/pi-ai";
-import { decideGuard, buildBlockReason, BLOCK_HINTS, fillHint, type GuardDecision } from "../guard.ts";
+import {
+	decideGuard,
+	buildBlockReason,
+	buildGuardUnavailableMessage,
+	guardFailureOf,
+	BLOCK_HINTS,
+	fillHint,
+	type GuardDecision,
+} from "../guard.ts";
 import { applyEnvOverrides, mergeGuard, DEFAULT_GUARD, mergeConfig, DEFAULT_CONFIG } from "../config.ts";
 
 function choiceResult(choice: string, confidence: number): ClassifierResult {
@@ -109,4 +117,56 @@ test("buildBlockReason: custom hint replaces the default and substitutes {catego
 
 test("buildBlockReason: empty or whitespace hint drops the hint line", () => {
 	assert.ok(!buildBlockReason(destructive, "   ").includes("\n"));
+});
+
+test("buildGuardUnavailableMessage: unregistered node names the node and the fix", () => {
+	const msg = buildGuardUnavailableMessage("no_model", "ms3");
+	assert.match(msg, /^halogen guard: проверка не выполнена/);
+	assert.match(msg, /классификатор ms3 не зарегистрирован/);
+	assert.match(msg, /команда пропущена без проверки/);
+	assert.match(msg, /HALOGEN_GUARD=0/);
+});
+
+test("buildGuardUnavailableMessage: classify error carries the error text", () => {
+	assert.match(
+		buildGuardUnavailableMessage("classify_error", "ms1", new Error("connect ECONNREFUSED 127.0.0.1:8080")),
+		/узел ms1 недоступен: connect ECONNREFUSED 127\.0\.0\.1:8080/,
+	);
+});
+
+test("buildGuardUnavailableMessage: missing or multiline error is collapsed", () => {
+	assert.match(buildGuardUnavailableMessage("classify_error", "ms1"), /узел ms1 недоступен: ошибка классификатора/);
+	assert.match(
+		buildGuardUnavailableMessage("classify_error", "ms1", new Error("fetch failed\n    at async node:internal")),
+		/узел ms1 недоступен: fetch failed at async node:internal/,
+	);
+});
+
+test("buildGuardUnavailableMessage: long error text is truncated", () => {
+	const msg = buildGuardUnavailableMessage("classify_error", "ms1", new Error("x".repeat(500)));
+	assert.ok(msg.length < 400, `message too long: ${msg.length}`);
+	assert.ok(msg.endsWith("HALOGEN_GUARD=0"));
+	assert.match(msg, /…\)/);
+});
+
+function rawResult(partial: Partial<ClassifierResult>): ClassifierResult {
+	return { ...choiceResult("safe", 1), ...partial };
+}
+
+test("guardFailureOf: provider error is a failure, not an exception", () => {
+	// classify() возвращает stopReason="error" вместо исключения — guard ловит отказ здесь
+	const r = rawResult({ answers: {}, stopReason: "error", errorMessage: "connect ECONNREFUSED" });
+	assert.equal(guardFailureOf(r), "classify_error");
+	assert.match(buildGuardUnavailableMessage("classify_error", "ms1", r.errorMessage), /узел ms1 недоступен: connect ECONNREFUSED/);
+});
+
+test("guardFailureOf: answer without a risk category is a failure", () => {
+	assert.equal(guardFailureOf(rawResult({ answers: {} })), "bad_answer");
+	assert.equal(guardFailureOf(rawResult({ answers: { risk: { type: "bool", probability: 0.5 } } })), "bad_answer");
+	assert.match(buildGuardUnavailableMessage("bad_answer", "ms1"), /узел ms1 не вернул категорию риска/);
+});
+
+test("guardFailureOf: usable answer and agent-aborted request are not failures", () => {
+	assert.equal(guardFailureOf(choiceResult("safe", 1)), undefined);
+	assert.equal(guardFailureOf(rawResult({ answers: {}, stopReason: "aborted" })), undefined);
 });
