@@ -38,6 +38,23 @@ export const SYSTEM_HEAD =
 /** Префикс ассистента, на котором обрывается генерация: здесь встаёт метка. */
 export const ANSWER_PREFIX = '{"answer": "';
 
+/**
+ * Раскладка промпта: какая часть уезжает в `system`, а какая — в `user`.
+ *
+ * `state-first` — состояние в `system`. Все вопросы одного вызова делят одно
+ * системное сообщение, поэтому сервер прогоняет состояние один раз и держит его
+ * в prompt-кэше.
+ *
+ * `state-last` — фиксированный текст вопроса с метками в `system`, состояние в
+ * `user`. Так правильнее, когда состояние меняется на каждом запросе, а вопрос
+ * нет: кэшируется длинная неизменная часть, и узел дочитывает только состояние.
+ * За этим стоит guard, где состояние — одна строка команды.
+ */
+export type PromptLayout = "state-first" | "state-last";
+
+/** Хвост `system` в раскладке `state-last`: говорит, где искать состояние. */
+export const STATE_LAST_TAIL = "The state to judge is the JSON in the next message.";
+
 /** Метки вопроса и ключи, которые они обозначают. Бросает ошибку на неверном числе опций. */
 export function questionLabels(question: ClassifierQuestion): {
 	labels: string[];
@@ -92,13 +109,72 @@ export function answerInstruction(question: ClassifierQuestion): string {
 	return `Answer ${BOOL_LABELS[0]} for yes, ${BOOL_LABELS[1]} for no.`;
 }
 
+/** Блок состояния — общая часть обеих раскладок. */
+export function renderStateBlock(state: unknown): string {
+	return `State:\n${JSON.stringify(state ?? {}, null, 1)}`;
+}
+
 /**
- * Общее системное сообщение: инструкция + состояние.
+ * Системное сообщение раскладки `state-first`: инструкция + состояние.
  * Одинаково для всех вопросов одного вызова → сервер один раз прогоняет состояние
  * и дальше берёт его из prompt-кэша.
  */
 export function renderSystem(state: unknown): string {
-	return `${SYSTEM_HEAD}\n\nState:\n${JSON.stringify(state ?? {}, null, 1)}`;
+	return `${SYSTEM_HEAD}\n\n${renderStateBlock(state)}`;
+}
+
+/** Текст одного вопроса: подписанные метки + инструкция «как ответить». */
+export function renderQuestionText(question: ClassifierQuestion): string {
+	const { labels } = questionLabels(question);
+	return `${renderTask(question, labels)}\n\n${answerInstruction(question)}`;
+}
+
+/**
+ * Раскладка вызова: в `system` идёт та часть, которая больше.
+ *
+ * Многовопросный вызов всегда `state-first`: только состояние делится между
+ * вопросами одного вызова, поэтому его и выгодно держать в кэшируемом префиксе.
+ *
+ * Одиночный вопрос сравнивается по размеру. Если состояние короче текста вопроса
+ * (guard: команда против критериев), в кэше полезнее держать вопрос, и состояние
+ * уезжает в `user`. Сравнение по числу символов — прокси: токенайзера на клиенте
+ * нет, а порядок размеров здесь решает, а не точное число.
+ */
+export function pickLayout(state: unknown, questions: ClassifierQuestion[]): PromptLayout {
+	if (questions.length !== 1) return "state-first";
+	const question = questions[0];
+	if (!question) return "state-first";
+	const stateSize = JSON.stringify(state ?? {}, null, 1).length;
+	return stateSize >= renderQuestionText(question).length ? "state-first" : "state-last";
+}
+
+/** Готовые `system` и `user` одного вопроса в выбранной раскладке. */
+export interface PromptParts {
+	system: string;
+	user: string;
+	layout: PromptLayout;
+}
+
+/**
+ * Собрать `system` и `user` для одного вопроса.
+ *
+ * `state-first` даёт ровно те же строки, что `renderSystem` + `renderQuestionText`.
+ * `state-last` переносит текст вопроса в `system`, а состояние — в `user`.
+ */
+export function renderMessages(
+	state: unknown,
+	question: ClassifierQuestion,
+	layout: PromptLayout,
+): PromptParts {
+	const task = renderQuestionText(question);
+	if (layout === "state-first") {
+		return { system: renderSystem(state), user: task, layout };
+	}
+	return {
+		system: `${SYSTEM_HEAD}\n\n${task}\n\n${STATE_LAST_TAIL}`,
+		user: renderStateBlock(state),
+		layout,
+	};
 }
 
 /** Softmax по logprobs меток после деления на `temperature`. */

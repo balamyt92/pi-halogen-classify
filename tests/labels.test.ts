@@ -11,9 +11,14 @@ import {
 	BOOL_LABELS,
 	labelProbabilities,
 	peakConfidence,
+	pickLayout,
 	questionLabels,
+	renderMessages,
+	renderQuestionText,
+	renderStateBlock,
 	renderSystem,
 	renderTask,
+	STATE_LAST_TAIL,
 } from "../labels.ts";
 
 test("questionLabels: choice maps letters to keys in order", () => {
@@ -104,6 +109,58 @@ test("renderSystem: includes the state JSON", () => {
 	assert.match(out, /State:/);
 	assert.match(out, /"a": 1/);
 	assert.match(out, /"b": "two"/);
+});
+
+const GUARD_LIKE: ClassifierQuestion = {
+	type: "choice",
+	instructions: "Classify the risk of this shell command.",
+	criteria: {
+		safe: "Ordinary developer work inside a project",
+		root_search: "Recursive search from the filesystem root",
+		destructive: "Mass or forced deletion or overwrite",
+		privileged: "Privilege escalation or system config change",
+	},
+};
+
+test("renderQuestionText: task plus the answer instruction", () => {
+	const out = renderQuestionText(GUARD_LIKE);
+	assert.match(out, /Options:\nA\. safe:/);
+	assert.match(out, /Answer with one letter\.$/);
+});
+
+test("renderMessages state-first: same strings as renderSystem + renderQuestionText", () => {
+	const state = { command: "git status" };
+	const parts = renderMessages(state, GUARD_LIKE, "state-first");
+	assert.equal(parts.system, renderSystem(state));
+	assert.equal(parts.user, renderQuestionText(GUARD_LIKE));
+	assert.match(parts.system, /git status/);
+});
+
+test("renderMessages state-last: criteria in system, state in user", () => {
+	const state = { command: "rm -rf dist" };
+	const parts = renderMessages(state, GUARD_LIKE, "state-last");
+	assert.ok(!parts.system.includes("rm -rf dist"), "system must not carry the state");
+	assert.match(parts.system, /A\. safe:/);
+	assert.match(parts.system, new RegExp(STATE_LAST_TAIL));
+	assert.equal(parts.user, renderStateBlock(state));
+	assert.match(parts.user, /rm -rf dist/);
+});
+
+test("pickLayout: several questions keep the state in system", () => {
+	assert.equal(pickLayout({ command: "ls" }, [GUARD_LIKE, GUARD_LIKE]), "state-first");
+});
+
+test("pickLayout: one question with a short state puts it last", () => {
+	assert.equal(pickLayout({ command: "git status" }, [GUARD_LIKE]), "state-last");
+});
+
+test("pickLayout: one question with a large state keeps it first", () => {
+	const bigState = { document: "x".repeat(renderQuestionText(GUARD_LIKE).length + 10) };
+	assert.equal(pickLayout(bigState, [GUARD_LIKE]), "state-first");
+});
+
+test("pickLayout: no questions falls back to state-first", () => {
+	assert.equal(pickLayout({}, []), "state-first");
 });
 
 test("labelProbabilities: sums to 1 and preserves order", () => {

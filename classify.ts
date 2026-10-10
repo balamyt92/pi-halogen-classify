@@ -17,11 +17,11 @@ import type {
 import {
 	ANSWER_PREFIX,
 	answerFromProbabilities,
-	answerInstruction,
-	questionLabels,
-	renderSystem,
-	renderTask,
 	labelProbabilities,
+	pickLayout,
+	questionLabels,
+	renderMessages,
+	type PromptLayout,
 } from "./labels.ts";
 
 /** Имя API, под которым регистрируется эта реализация. */
@@ -123,13 +123,14 @@ async function classifyQuestion(
 	model: ClassifierModel<string>,
 	baseUrl: string,
 	apiKey: string | undefined,
-	systemContent: string,
+	state: unknown,
 	question: ClassifierQuestion,
+	layout: PromptLayout,
 	temperature: number,
 	options: ClassifierOptions | undefined,
 ): Promise<{ answer: ClassifierResult["answers"][string]; usage: Usage }> {
 	const { labels, keys } = questionLabels(question);
-	const userContent = `${renderTask(question, labels)}\n\n${answerInstruction(question)}`;
+	const { system, user } = renderMessages(state, question, layout);
 
 	const json = await postChat(
 		baseUrl,
@@ -137,8 +138,8 @@ async function classifyQuestion(
 		{
 			model: serverModelFor(model),
 			messages: [
-				{ role: "system", content: systemContent },
-				{ role: "user", content: userContent },
+				{ role: "system", content: system },
+				{ role: "user", content: user },
 				{ role: "assistant", content: ANSWER_PREFIX },
 			],
 			continue_final_message: true,
@@ -196,8 +197,12 @@ async function classifyQuestion(
 
 /**
  * Классификация через узел halogen-flash-server чтением вероятностей следующего
- * токена-метки. Вопросы идут по одному: все делят одно системное сообщение, поэтому
- * сервер прогоняет состояние один раз и переиспользует prompt-кэш.
+ * токена-метки. Вопросы идут по одному.
+ *
+ * Раскладку промпта выбирает `pickLayout`: при нескольких вопросах состояние
+ * остаётся в системном сообщении и переиспользуется prompt-кэшем между вопросами,
+ * при одном коротком состоянии (guard) фиксированный текст вопроса уезжает в
+ * системное сообщение и кэшируется между вызовами.
  */
 export const classify = async (
 	model: ClassifierModel<string>,
@@ -229,7 +234,7 @@ export const classify = async (
 
 		const baseUrl = normalizeBaseUrl(model.baseUrl);
 		const apiKey = options?.apiKey;
-		const systemContent = renderSystem(context.state);
+		const layout = pickLayout(context.state, ids.map((id) => questions[id] as ClassifierQuestion));
 
 		const answers: ClassifierResult["answers"] = {};
 		const total = emptyUsage();
@@ -238,8 +243,9 @@ export const classify = async (
 				model,
 				baseUrl,
 				apiKey,
-				systemContent,
+				context.state,
 				questions[id] as ClassifierQuestion,
+				layout,
 				temperature,
 				options,
 			);

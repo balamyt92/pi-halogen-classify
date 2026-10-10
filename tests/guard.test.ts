@@ -8,12 +8,14 @@ import type { ClassifierResult } from "@earendil-works/pi-ai";
 import {
 	decideGuard,
 	buildBlockReason,
+	buildGuardContext,
 	buildGuardUnavailableMessage,
 	guardFailureOf,
 	BLOCK_HINTS,
 	fillHint,
 	type GuardDecision,
 } from "../guard.ts";
+import { pickLayout, renderMessages } from "../labels.ts";
 import { applyEnvOverrides, mergeGuard, DEFAULT_GUARD, mergeConfig, DEFAULT_CONFIG } from "../config.ts";
 
 function choiceResult(choice: string, confidence: number): ClassifierResult {
@@ -169,4 +171,17 @@ test("guardFailureOf: answer without a risk category is a failure", () => {
 test("guardFailureOf: usable answer and agent-aborted request are not failures", () => {
 	assert.equal(guardFailureOf(choiceResult("safe", 1)), undefined);
 	assert.equal(guardFailureOf(rawResult({ answers: {}, stopReason: "aborted" })), undefined);
+});
+
+test("guard: команда уходит из system, фиксированные критерии остаются в нём", () => {
+	const context = buildGuardContext("find / -name '*.env' 2>/dev/null");
+	const questions = Object.values(context.questions);
+	assert.equal(questions.length, 1);
+	assert.equal(pickLayout(context.state, questions), "state-last");
+
+	const parts = renderMessages(context.state, questions[0]!, "state-last");
+	assert.ok(!parts.system.includes("State:"), "состояния в system быть не должно");
+	assert.ok(!parts.system.includes("2>/dev/null"), "system не должен меняться от команды к команде");
+	assert.match(parts.system, /root_search/);
+	assert.match(parts.user, /find \//);
 });
