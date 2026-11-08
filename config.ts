@@ -14,8 +14,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_GUARD, type GuardConfig } from "./guard.ts";
-export { DEFAULT_GUARD, type GuardConfig };
+import { DEFAULT_GUARD, parseGuardMode, type GuardConfig, type GuardMode } from "./guard.ts";
+export { DEFAULT_GUARD, type GuardConfig, type GuardMode };
 
 export interface NodeConfig {
 	id: string;
@@ -109,6 +109,9 @@ export function mergeGuard(value: unknown, defaults: GuardConfig): GuardConfig {
 	const out: GuardConfig = { ...defaults };
 	if (!isRecord(value)) return out;
 	if (typeof value.enabled === "boolean") out.enabled = value.enabled;
+	// Режим: имя или числовой алиас 1/2/3; нераспознанное значение оставляет дефолт.
+	const mode = parseGuardMode(value.mode);
+	if (mode !== undefined) out.mode = mode;
 	if (typeof value.node === "string" && value.node.length > 0) out.node = value.node;
 	if (typeof value.blockThreshold === "number" && value.blockThreshold >= 0 && value.blockThreshold <= 1) {
 		out.blockThreshold = value.blockThreshold;
@@ -133,6 +136,9 @@ export function applyEnvOverrides(
 	if (env.HALOGEN_MODEL) out.model = env.HALOGEN_MODEL;
 	if (env.HALOGEN_GUARD === "1" || env.HALOGEN_GUARD === "true") out.guard.enabled = true;
 	if (env.HALOGEN_GUARD === "0" || env.HALOGEN_GUARD === "false") out.guard.enabled = false;
+	// Режим guard'а: именем или числом — HALOGEN_GUARD_MODE=strict|ask|warn|1|2|3.
+	const mode = parseGuardMode(env.HALOGEN_GUARD_MODE);
+	if (mode !== undefined) out.guard.mode = mode;
 	// Пустая строка в env отключает подсказку, поэтому сравнение с undefined.
 	if (env.HALOGEN_GUARD_HINT !== undefined) out.guard.blockHint = env.HALOGEN_GUARD_HINT;
 	// Переопределение базового URL узла по его id: HALOGEN_NODE_<ID>_BASE_URL.

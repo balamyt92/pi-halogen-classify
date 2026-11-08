@@ -8,6 +8,7 @@
   ],
   "guard": {
     "enabled": false,
+    "mode": "strict",
     "node": "ms1",
     "blockThreshold": 0.6
   }

@@ -7,10 +7,19 @@ import { test } from "node:test";
 import type { ClassifierResult } from "@earendil-works/pi-ai";
 import {
 	decideGuard,
+	buildAskMessage,
 	buildBlockReason,
 	buildGuardContext,
 	buildGuardUnavailableMessage,
+	buildUserDeniedReason,
+	buildWarnMessage,
+	formatDecision,
+	guardActionOf,
 	guardFailureOf,
+	GUARD_MODES,
+	GUARD_MODE_ORDER,
+	isGuardMode,
+	parseGuardMode,
 	BLOCK_HINTS,
 	fillHint,
 	type GuardDecision,
@@ -53,6 +62,68 @@ test("decideGuard: unknown / missing answer fails open", () => {
 	};
 	assert.equal(decideGuard(empty, 0.5).block, false);
 	assert.equal(decideGuard(empty, 0.5).category, "unknown");
+});
+
+test("mergeGuard: mode accepts names and numeric aliases, junk falls back", () => {
+	assert.equal(mergeGuard({ mode: "ask" }, DEFAULT_GUARD).mode, "ask");
+	assert.equal(mergeGuard({ mode: "warn" }, DEFAULT_GUARD).mode, "warn");
+	assert.equal(mergeGuard({ mode: 2 }, DEFAULT_GUARD).mode, "ask");
+	assert.equal(mergeGuard({ mode: "3" }, DEFAULT_GUARD).mode, "warn");
+	assert.equal(mergeGuard({ mode: 4 }, DEFAULT_GUARD).mode, DEFAULT_GUARD.mode);
+	assert.equal(mergeGuard({ mode: "nope" }, DEFAULT_GUARD).mode, DEFAULT_GUARD.mode);
+	assert.equal(DEFAULT_GUARD.mode, "strict");
+});
+
+test("applyEnvOverrides: HALOGEN_GUARD_MODE accepts names and aliases, junk ignored", () => {
+	assert.equal(applyEnvOverrides(DEFAULT_CONFIG, { HALOGEN_GUARD_MODE: "ask" }).guard.mode, "ask");
+	assert.equal(applyEnvOverrides(DEFAULT_CONFIG, { HALOGEN_GUARD_MODE: "WARN" }).guard.mode, "warn");
+	assert.equal(applyEnvOverrides(DEFAULT_CONFIG, { HALOGEN_GUARD_MODE: "2" }).guard.mode, "ask");
+	assert.equal(applyEnvOverrides(DEFAULT_CONFIG, { HALOGEN_GUARD_MODE: "7" }).guard.mode, DEFAULT_GUARD.mode);
+	assert.equal(applyEnvOverrides(DEFAULT_CONFIG, {}).guard.mode, DEFAULT_GUARD.mode);
+});
+
+test("parseGuardMode: names, aliases, case and spaces", () => {
+	assert.equal(parseGuardMode("strict"), "strict");
+	assert.equal(parseGuardMode(" Ask "), "ask");
+	assert.equal(parseGuardMode(3), "warn");
+	assert.equal(parseGuardMode("1"), "strict");
+	assert.equal(parseGuardMode("nope"), undefined);
+	assert.equal(parseGuardMode(undefined), undefined);
+	assert.equal(parseGuardMode(true), undefined);
+});
+
+test("isGuardMode: only the three names", () => {
+	assert.ok(isGuardMode("strict") && isGuardMode("ask") && isGuardMode("warn"));
+	assert.ok(!isGuardMode(1) && !isGuardMode("nope"));
+});
+
+test("guardActionOf: safe always passes", () => {
+	const safe: GuardDecision = { block: false, category: "safe", confidence: 1 };
+	for (const mode of GUARD_MODE_ORDER) assert.equal(guardActionOf(safe, mode), "pass");
+});
+
+test("guardActionOf: dangerous maps mode to action", () => {
+	const bad: GuardDecision = { block: true, category: "destructive", confidence: 0.9 };
+	assert.equal(guardActionOf(bad, "strict"), "block");
+	assert.equal(guardActionOf(bad, "ask"), "ask");
+	assert.equal(guardActionOf(bad, "warn"), "warn");
+});
+
+test("mode texts: ask, denied reason, warn carry category and confidence", () => {
+	const bad: GuardDecision = { block: true, category: "destructive", confidence: 0.92 };
+	assert.equal(formatDecision(bad), "category: destructive, confidence: 0.92");
+	assert.match(buildAskMessage(bad), /destructive, confidence: 0\.92/);
+	assert.match(buildAskMessage(bad), /Разрешить исполнение\?/);
+	assert.match(buildUserDeniedReason(bad), /user denied/);
+	assert.match(buildUserDeniedReason(bad), /Do not retry/);
+	assert.match(buildWarnMessage(bad), /опасная команда пропущена/);
+	assert.match(buildWarnMessage(bad), /confidence: 0\.92/);
+});
+
+test("GUARD_MODES: описание для каждого режима, порядок задан", () => {
+	assert.deepEqual([...GUARD_MODE_ORDER], ["strict", "ask", "warn"]);
+	assert.equal(Object.keys(GUARD_MODES).length, 3);
+	for (const m of GUARD_MODE_ORDER) assert.ok(GUARD_MODES[m].length > 0);
 });
 
 test("mergeGuard: file fields override defaults", () => {

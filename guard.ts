@@ -19,9 +19,54 @@
 
 import type { ClassifierContext, ClassifierResult } from "@earendil-works/pi-ai";
 
+/**
+ * Режим реакции guard'а на опасную команду. Классификация выполняется в любом
+ * режиме — режим меняет только реакцию на решение.
+ *
+ * - `strict` — автоотказ: опасная команда блокируется (историческое поведение, алиас 1);
+ * - `ask` — диалог: пользователя спрашивают через `ctx.ui.confirm`, блок по отказу (алиас 2);
+ * - `warn` — свободный доступ: команда проходит, в чат идёт предупреждение (алиас 3).
+ */
+export type GuardMode = "strict" | "ask" | "warn";
+
+/** Человекочитаемое описание режима — для статуса и диалога выбора. */
+export const GUARD_MODES: Record<GuardMode, string> = {
+	strict: "автоотказ — опасные команды блокируются",
+	ask: "диалог — опасную команду подтверждает пользователь",
+	warn: "свободный доступ — опасные команды проходят с предупреждением",
+};
+
+/** Порядок режимов в диалоге выбора и в подсказках. */
+export const GUARD_MODE_ORDER: readonly GuardMode[] = ["strict", "ask", "warn"];
+
+export function isGuardMode(value: unknown): value is GuardMode {
+	return value === "strict" || value === "ask" || value === "warn";
+}
+
+/** Числовые алиасы имён: 1=strict, 2=ask, 3=warn. */
+const GUARD_MODE_ALIASES: Record<string, GuardMode> = {
+	"1": "strict",
+	"2": "ask",
+	"3": "warn",
+	strict: "strict",
+	ask: "ask",
+	warn: "warn",
+};
+
+/**
+ * Разбор режима из конфига, env или аргумента команды: имя (регистр не важен)
+ * или числовой алиас. `undefined` — значение не распознано.
+ */
+export function parseGuardMode(value: unknown): GuardMode | undefined {
+	const key = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim().toLowerCase() : undefined;
+	return key === undefined ? undefined : GUARD_MODE_ALIASES[key];
+}
+
 export interface GuardConfig {
 	/** Включён ли предохранитель. По умолчанию выключен — включается на машине. */
 	enabled: boolean;
+	/** Режим реакции на опасную команду. По умолчанию `strict` (автоотказ). */
+	mode: GuardMode;
 	/** id узла-классификатора (ms1/ms2), которым проверять. */
 	node: string;
 	/** Блокировать, если категория не `safe` и уверенность >= порога. */
@@ -36,6 +81,7 @@ export interface GuardConfig {
 
 export const DEFAULT_GUARD: GuardConfig = {
 	enabled: false,
+	mode: "strict",
 	node: "ms1",
 	blockThreshold: 0.6,
 };
@@ -171,6 +217,46 @@ export function buildGuardUnavailableMessage(
 		`Проверьте guard.node и доступность сервера в halogen-classify.json, ` +
 		`либо отключите guard: HALOGEN_GUARD=0`
 	);
+}
+
+/**
+ * Реакция guard'а на решение классификатора в заданном режиме.
+ * `pass` — пропустить молча; `block` — отказать модели; `ask` — спросить
+ * пользователя; `warn` — пропустить с предупреждением в чат.
+ */
+export type GuardAction = "pass" | "block" | "ask" | "warn";
+
+export function guardActionOf(decision: GuardDecision, mode: GuardMode): GuardAction {
+	if (!decision.block) return "pass";
+	if (mode === "ask") return "ask";
+	if (mode === "warn") return "warn";
+	return "block";
+}
+
+/** Категория и уверенность одной строкой — общая для текстов режимов 2 и 3. */
+export function formatDecision(decision: GuardDecision): string {
+	return `category: ${decision.category}, confidence: ${decision.confidence.toFixed(2)}`;
+}
+
+/** Текст диалога подтверждения (режим `ask`). */
+export function buildAskMessage(decision: GuardDecision): string {
+	return (
+		`halogen guard: команда классифицирована как опасная (${formatDecision(decision)}). ` +
+		`Разрешить исполнение?`
+	);
+}
+
+/** Причина для модели, когда пользователь отказал в диалоге (режим `ask`). */
+export function buildUserDeniedReason(decision: GuardDecision): string {
+	return (
+		`halogen guard: the user denied this command in the confirmation dialog (${formatDecision(decision)}). ` +
+		`Do not retry it. Ask the user what to do instead.`
+	);
+}
+
+/** Предупреждение в чат при пропуске опасной команды (режим `warn`). */
+export function buildWarnMessage(decision: GuardDecision): string {
+	return `halogen guard: опасная команда пропущена без блокировки (${formatDecision(decision)})`;
 }
 
 /** Решение по результату классификации: блокировать или пропустить. */
